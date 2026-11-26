@@ -58,12 +58,13 @@ Open the options panel with `/procdoc`:
 - **Min / Max Size**: pulse scale range.
 - **Pulse Speed**: animation speed (FPS-independent, calibrated via `/procdoc pulsefps`).
 - **Top Offset / Side Offset**: vertical and horizontal alert placement.
+- **Sound Volume**: alert sound volume (`0%`–`100%`).
 - **Mute All Proc Sounds**: silence all alert sounds.
 - **Disable Timers**: hide countdown numbers.
 - **Dim Low Resource**: show reactive procs dimmed when out of Mana/Rage/Energy or in the wrong stance (uncheck to hide instead).
 - **Decimal Timers**: show `0.1s` precision when remaining time is under `5s`.
 - **Combat Only**: only display live alerts while in combat.
-- **Per-proc checkboxes**, **Test Proc**, **Hide All**, **Reset Defaults**, and **Close**.
+- **Per-proc checkboxes** (including your `[Custom]` procs), **Test Proc**, **Hide All**, **Reset Defaults**, and **Close**.
 
 ---
 
@@ -78,9 +79,10 @@ Open the options panel with `/procdoc`:
 | `/procdoc resource dim\|hide` | Dim low-resource / wrong-stance reactive procs (default) or hide them |
 | `/procdoc decimals on\|off` | Toggle `0.1s` decimal countdown under `5s` (default: on) |
 | `/procdoc combat on\|off` | Toggle Combat Only mode (default: off) |
-| `/procdoc add <Buff Name> [style]` | Add a custom buff proc (`TOP`, `TOP2`, `TOP_ROTATED`, `SIDES`, `SIDES2`, `LEFT`, `RIGHT`) |
+| `/procdoc add <Buff Name> [style] [texture]` | Add a custom buff proc (`TOP`, `TOP2`, `TOP_ROTATED`, `SIDES`, `SIDES2`, `LEFT`, `RIGHT`) with optional texture |
 | `/procdoc remove <Buff Name>` | Remove a custom buff proc |
 | `/procdoc list` | List all custom buff procs |
+| `/procdoc textures` | List built-in alert texture names available for `/procdoc add` |
 | `/procdoc trace` | Toggle debug trace output in chat |
 | `/procdoc pulsefps <10-500>` | Calibrate pulse speed reference FPS (default: 60) |
 | `/procdoc help` | List available commands |

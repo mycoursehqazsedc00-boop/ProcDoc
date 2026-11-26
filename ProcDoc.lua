@@ -2313,7 +2313,7 @@ local function CreateProcDocOptionsFrame()
         f:SetScript("OnHide", function() HideAllTestAlerts() end)
         
     -- Top (static) settings section (sliders / primary checkboxes)
-        local TOP_SECTION_HEIGHT = 505  -- space for all sliders & two rows of checkboxes
+        local TOP_SECTION_HEIGHT = 565  -- space for all sliders & checkboxes
         local sectionFrame = CreateFrame("Frame", nil, f)
         sectionFrame:SetPoint("TOPLEFT", f, "TOPLEFT", 15, -30)
         sectionFrame:SetWidth(f:GetWidth() - 30)
@@ -2676,9 +2676,42 @@ local function CreateProcDocOptionsFrame()
             ReanchorAllLiveProcs(); UpdateTestAlertsPositions()
         end)
 
+    -- Sound volume slider
+        local volLabel = sectionFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        volLabel:SetPoint("TOPLEFT", 10, -430)
+        volLabel:SetText("Sound Volume:")
+
+        local soundVolInit = (ProcDocDB and ProcDocDB.globalVars and ProcDocDB.globalVars.soundVolume) or 1.0
+        local soundVolSlider = CreateFrame("Slider", "ProcDocSoundVolumeSlider", f, "OptionsSliderTemplate")
+        soundVolSlider:SetPoint("TOPLEFT", 20, -480)
+        soundVolSlider:SetWidth(300)
+        soundVolSlider:SetMinMaxValues(0, 1)
+        soundVolSlider:SetValueStep(0.05)
+        soundVolSlider:SetValue(soundVolInit)
+
+        local lowV  = getglobal(soundVolSlider:GetName().."Low")
+        local highV = getglobal(soundVolSlider:GetName().."High")
+        local txtV  = getglobal(soundVolSlider:GetName().."Text")
+        if lowV  then lowV:SetText("0%")    end
+        if highV then highV:SetText("100%") end
+        if txtV  then txtV:SetText(string.format("%d%%", math.floor(soundVolInit * 100 + 0.5))) end
+
+        soundVolSlider:SetScript("OnValueChanged", function()
+            local slider = this
+            local value  = slider:GetValue()
+            if value < 0 then value = 0 end
+            if value > 1 then value = 1 end
+            if ProcDocDB and ProcDocDB.globalVars then
+                ProcDocDB.globalVars.soundVolume = value
+            end
+            if txtV then
+                txtV:SetText(string.format("%d%%", math.floor(value * 100 + 0.5)))
+            end
+        end)
+
     -- Mute checkbox
     local muteCheck = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-    muteCheck:SetPoint("TOPLEFT", sectionFrame, "TOPLEFT", 5, -420)
+    muteCheck:SetPoint("TOPLEFT", sectionFrame, "TOPLEFT", 5, -480)
         muteCheck:SetWidth(24)
         muteCheck:SetHeight(24)
 
@@ -2783,68 +2816,101 @@ local function CreateProcDocOptionsFrame()
         sectionFrame2:SetBackdropColor(0.2, 0.2, 0.2, 1)
         sectionFrame2:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
 
-        local numProcs = 0
-        for _ in ipairs(classProcs) do numProcs = numProcs + 1 end
         local ROW_HEIGHT = 28
         local LIST_EXTRA_PADDING = 10 -- padding inside frame
-        local listHeight = (numProcs * ROW_HEIGHT) + LIST_EXTRA_PADDING
-        if listHeight < 36 then listHeight = 36 end
 
         -- Anchor the dynamic list directly below the top section
         sectionFrame2:ClearAllPoints()
         sectionFrame2:SetPoint("TOPLEFT", sectionFrame, "BOTTOMLEFT", 0, -20)
         sectionFrame2:SetWidth(sectionFrame:GetWidth())
-        sectionFrame2:SetHeight(listHeight)
 
         -- Position label inside sectionFrame2
         testLabel:ClearAllPoints()
         testLabel:SetPoint("TOPLEFT", sectionFrame2, "TOPLEFT", 5, 13)
 
         local firstCheckY = -25  -- relative to sectionFrame2 top
-    -- Table to hold references to each buff's checkbox
-    local checkBoxes = {}
+        -- Table to hold references to each buff's checkbox & reusable widget pool
+        local checkBoxes = {}
+        local checkPool  = {}
+        local activeListEntries = {}
 
-    -- Build checkbox list
-        local idx = 0
-        for _, procInfo in ipairs(classProcs) do
-            idx = idx + 1
-            local check = CreateFrame("CheckButton", nil, sectionFrame2, "UICheckButtonTemplate")
-            check:SetHeight(24)
-            check:SetWidth(24)
-            check:ClearAllPoints()
-            local yOff = firstCheckY - ((idx - 1) * ROW_HEIGHT - 19)
-            check:SetPoint("TOPLEFT", sectionFrame2, "TOPLEFT", 5, yOff)
+        local function RebuildProcCheckboxes()
+            for _, cb in ipairs(checkPool) do cb:Hide() end
+            for k in pairs(checkBoxes) do checkBoxes[k] = nil end
+            for i = table.getn(activeListEntries), 1, -1 do activeListEntries[i] = nil end
 
-            local label = check:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            label:SetPoint("LEFT", check, "RIGHT", 4, 0)
-            label:SetText(procInfo.buffName)
-
-            local localProcInfo = procInfo
-            checkBoxes[localProcInfo.buffName] = check
-            check:SetScript("OnClick", function()
-                local bName = localProcInfo.buffName
-                local isChecked = check:GetChecked()
-                if not bName then return end
-                if isChecked then
-                    ProcDocDB.procsEnabled[bName] = true
-                else
-                    ProcDocDB.procsEnabled[bName] = false
+            for _, procInfo in ipairs(classProcs) do
+                table.insert(activeListEntries, { info = procInfo, isCustom = false })
+            end
+            if ProcDocDB and ProcDocDB.customProcs then
+                local customNames = {}
+                for bName in pairs(ProcDocDB.customProcs) do
+                    table.insert(customNames, bName)
                 end
-                CheckProcs()
-                CheckAllActionProcs()
-                UpdateSpellbookActionProcs()
-            end)
-            local isEnabled = (ProcDocDB.procsEnabled[procInfo.buffName] ~= false)
-            check:SetChecked(isEnabled)
+                table.sort(customNames)
+                for _, bName in ipairs(customNames) do
+                    table.insert(activeListEntries, { info = ProcDocDB.customProcs[bName], isCustom = true })
+                end
+            end
+
+            local numProcs = table.getn(activeListEntries)
+            local listHeight = (numProcs * ROW_HEIGHT) + LIST_EXTRA_PADDING
+            if listHeight < 36 then listHeight = 36 end
+            sectionFrame2:SetHeight(listHeight)
+
+            for idx, entry in ipairs(activeListEntries) do
+                local procInfo = entry.info
+                local check = checkPool[idx]
+                if not check then
+                    check = CreateFrame("CheckButton", nil, sectionFrame2, "UICheckButtonTemplate")
+                    check:SetHeight(24)
+                    check:SetWidth(24)
+                    local label = check:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                    label:SetPoint("LEFT", check, "RIGHT", 4, 0)
+                    check._pdLabel = label
+                    checkPool[idx] = check
+                end
+                check:ClearAllPoints()
+                local yOff = firstCheckY - ((idx - 1) * ROW_HEIGHT - 19)
+                check:SetPoint("TOPLEFT", sectionFrame2, "TOPLEFT", 5, yOff)
+
+                local displayText = procInfo.buffName or ""
+                if entry.isCustom then
+                    displayText = displayText .. " |cff00ffff[Custom]|r"
+                end
+                check._pdLabel:SetText(displayText)
+
+                local localProcInfo = procInfo
+                checkBoxes[localProcInfo.buffName] = check
+                check:SetScript("OnClick", function()
+                    local bName = localProcInfo.buffName
+                    local isChecked = check:GetChecked()
+                    if not bName then return end
+                    if isChecked then
+                        ProcDocDB.procsEnabled[bName] = true
+                    else
+                        ProcDocDB.procsEnabled[bName] = false
+                    end
+                    CheckProcs()
+                    CheckAllActionProcs()
+                    UpdateSpellbookActionProcs()
+                end)
+                local isEnabled = (ProcDocDB.procsEnabled[procInfo.buffName] ~= false)
+                check:SetChecked(isEnabled)
+                check:Show()
+            end
+
+            -- Recompute full frame height now that we know list height
+            local BUTTON_BLOCK_HEIGHT = 70 -- space for buttons + padding
+            local totalHeight = 30 + TOP_SECTION_HEIGHT + 10 + listHeight + BUTTON_BLOCK_HEIGHT + 20
+            if totalHeight < 520 then totalHeight = 520 end -- minimum so sliders area not cramped
+            f:SetHeight(totalHeight)
         end
 
-    -- Recompute full frame height now that we know list height
-        local BUTTON_BLOCK_HEIGHT = 70 -- space for buttons + padding
-        local totalHeight = 30 + TOP_SECTION_HEIGHT + 10 + listHeight + BUTTON_BLOCK_HEIGHT + 20
-        if totalHeight < 520 then totalHeight = 520 end -- minimum so sliders area not cramped
-        f:SetHeight(totalHeight)
+        f._rebuildList = RebuildProcCheckboxes
+        RebuildProcCheckboxes()
 
-    -- Test proc button (shows alerts for all checked procs)
+    -- Test proc button (shows alerts for all checked procs, including custom procs)
     local testButton = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     testButton:ClearAllPoints()
     testButton:SetPoint("TOPLEFT", sectionFrame2, "BOTTOMLEFT", 5, -45)
@@ -2854,7 +2920,8 @@ local function CreateProcDocOptionsFrame()
 
         -- Replace old logic with:
         testButton:SetScript("OnClick", function()
-            for _, procInfo in ipairs(classProcs) do
+            for _, entry in ipairs(activeListEntries) do
+                local procInfo = entry.info
                 local c = checkBoxes[procInfo.buffName]
                 if c and c:GetChecked() then
                     ShowTestBuffAlert(procInfo)
@@ -2881,6 +2948,7 @@ local function CreateProcDocOptionsFrame()
             gv.pulseSpeed       = 0.4
             gv.topOffset        = 70
             gv.sideOffset       = 60
+            gv.soundVolume      = 1.0
             gv.isMuted          = false
             gv.disableTimers    = false
             gv.dimOnLowResource = true
@@ -2894,6 +2962,7 @@ local function CreateProcDocOptionsFrame()
             pulseSpeedSlider:SetValue(pulseSpeed)
             topOffsetSlider:SetValue(topOffset)
             sideOffsetSlider:SetValue(sideOffset)
+            soundVolSlider:SetValue(1.0)
             muteCheck:SetChecked(false)
             timerCheck:SetChecked(false)
             dimCheck:SetChecked(true)
@@ -2929,6 +2998,9 @@ local function CreateProcDocOptionsFrame()
         
     end
 
+    if ProcDocOptionsFrame._rebuildList then
+        ProcDocOptionsFrame._rebuildList()
+    end
     ProcDocOptionsFrame:Show()
     
 end
@@ -3027,6 +3099,41 @@ local VALID_CUSTOM_STYLES = {
     ["SIDES"] = true, ["SIDES2"] = true, ["LEFT"] = true, ["RIGHT"] = true,
 }
 
+local BUILTIN_ALERT_TEXTURES = {
+    "DruidArcaneEclipse.tga", "DruidAstralBoon.tga", "DruidClearcasting.tga",
+    "DruidNaturalBoon.tga", "DruidNatureEclipse.tga", "DruidNaturesGrace.tga",
+    "Grand_Crusader.tga", "HunterBaitedShot.tga", "HunterMongooseBite.tga",
+    "HunterQuickShots.tga", "impact.blp", "lock_and_load.blp",
+    "MageArcaneRupture.tga", "MageArcaneSurge.tga", "MageFlashFreeze.tga",
+    "MageHotStreak.tga", "MageT2.tga", "MageTemporalConvergence.tga",
+    "natures_grace.blp", "PaladinDaybreak.tga", "PaladinHammer.tga",
+    "PaladinJudgement.tga", "PaladinJustice.tga", "PriestEnlightened.tga",
+    "PriestResurgence.tga", "PriestSearingLight.tga", "PriestShadowVeil.tga",
+    "PriestSpellBlasting.tga", "PriestSurgeOfLight.tga", "RogueRemorseless.tga",
+    "RogueRiposte.tga", "RogueSliceDice.tga", "RogueSuddenDeath.tga",
+    "RogueTricksoftheTrade.tga", "serendipity.blp", "ShamanClearcasting.tga",
+    "ShamanStormstrike.tga", "WarlockShadowTrance.tga", "WarriorCounterattack.tga",
+    "WarriorEnrage.tga", "WarriorExecute.tga", "WarriorOverpower.tga",
+    "WarriorRevenge.tga",
+}
+
+local function ProcDoc_ResolveAlertTexture(token)
+    if not token or token == "" then return nil end
+    if string.find(token, "\\", 1, true) or string.find(token, "/", 1, true) then
+        return token
+    end
+    local lower = string.lower(token)
+    local lowerNoExt = string.gsub(lower, "%.%a+$", "")
+    for _, fname in ipairs(BUILTIN_ALERT_TEXTURES) do
+        local fl = string.lower(fname)
+        local flNoExt = string.gsub(fl, "%.%a+$", "")
+        if fl == lower or flNoExt == lowerNoExt then
+            return "Interface\\AddOns\\ProcDoc\\img\\" .. fname
+        end
+    end
+    return nil
+end
+
 SLASH_PROCDOC1 = "/procdoc"
 SlashCmdList["PROCDOC"] = function(msg)
     local raw = msg or ""
@@ -3040,27 +3147,59 @@ SlashCmdList["PROCDOC"] = function(msg)
     elseif cmd == "trace" then
         procDocTrace = not procDocTrace
         ProcDoc_Say("debug trace " .. (procDocTrace and "ON" or "OFF"))
+    elseif cmd == "textures" then
+        ProcDoc_Say("built-in alert textures ("..table.getn(BUILTIN_ALERT_TEXTURES).."):")
+        local line = ""
+        for i, fname in ipairs(BUILTIN_ALERT_TEXTURES) do
+            local short = string.gsub(fname, "%.%a+$", "")
+            if line == "" then
+                line = "   " .. short
+            else
+                line = line .. ", " .. short
+            end
+            if math.mod(i, 5) == 0 or i == table.getn(BUILTIN_ALERT_TEXTURES) then
+                DEFAULT_CHAT_FRAME:AddMessage(line)
+                line = ""
+            end
+        end
     elseif cmd == "add" then
         ProcDoc_EnsureDB()
         if not rawRest or rawRest == "" then
-            ProcDoc_Say("usage: /procdoc add <Exact Buff Name> [TOP|TOP2|SIDES|SIDES2|LEFT|RIGHT]")
+            ProcDoc_Say("usage: /procdoc add <Exact Buff Name> [style] [texture]  (see /procdoc textures)")
             return
         end
         local bName = rawRest
         local style = "SIDES"
-        local _, _, head, tail = string.find(rawRest, "^(.-)%s+(%S+)$")
-        if head and head ~= "" and tail and VALID_CUSTOM_STYLES[string.upper(tail)] then
-            bName = head
-            style = string.upper(tail)
+        local texPath = DEFAULT_ALERT_TEXTURE
+
+        -- Optional trailing texture token (matched against built-in img/ names or full path)
+        local _, _, head1, tail1 = string.find(bName, "^(.-)%s+(%S+)$")
+        if head1 and head1 ~= "" and tail1 then
+            local resolved = ProcDoc_ResolveAlertTexture(tail1)
+            if resolved then
+                texPath = resolved
+                bName = head1
+            end
         end
+        -- Optional trailing style token
+        local _, _, head2, tail2 = string.find(bName, "^(.-)%s+(%S+)$")
+        if head2 and head2 ~= "" and tail2 and VALID_CUSTOM_STYLES[string.upper(tail2)] then
+            style = string.upper(tail2)
+            bName = head2
+        end
+
         ProcDocDB.customProcs[bName] = {
             buffName         = bName,
             texture          = nil,
-            alertTexturePath = DEFAULT_ALERT_TEXTURE,
+            alertTexturePath = texPath,
             alertStyle       = style,
         }
         ProcDocDB.procsEnabled[bName] = true
-        ProcDoc_Say("added custom buff proc '"..bName.."' (style: "..style..").")
+        local shortTex = string.gsub(texPath, "^.*\\", "")
+        ProcDoc_Say("added custom buff proc '"..bName.."' (style: "..style..", texture: "..shortTex..").")
+        if ProcDocOptionsFrame and ProcDocOptionsFrame._rebuildList then
+            ProcDocOptionsFrame._rebuildList()
+        end
         CheckProcs()
     elseif cmd == "remove" then
         ProcDoc_EnsureDB()
@@ -3080,6 +3219,9 @@ SlashCmdList["PROCDOC"] = function(msg)
         if foundKey then
             ProcDocDB.customProcs[foundKey] = nil
             ProcDoc_Say("removed custom buff proc '"..foundKey.."'.")
+            if ProcDocOptionsFrame and ProcDocOptionsFrame._rebuildList then
+                ProcDocOptionsFrame._rebuildList()
+            end
             CheckProcs()
         else
             ProcDoc_Say("custom proc not found: '"..rawRest.."'.")
@@ -3089,10 +3231,11 @@ SlashCmdList["PROCDOC"] = function(msg)
         local count = 0
         for k, v in pairs(ProcDocDB.customProcs) do
             count = count + 1
-            DEFAULT_CHAT_FRAME:AddMessage("   "..k.." ("..tostring(v.alertStyle or "SIDES")..")")
+            local shortTex = string.gsub(v.alertTexturePath or DEFAULT_ALERT_TEXTURE, "^.*\\", "")
+            DEFAULT_CHAT_FRAME:AddMessage("   "..k.." ("..tostring(v.alertStyle or "SIDES")..", "..shortTex..")")
         end
         if count == 0 then
-            ProcDoc_Say("no custom procs added. Use /procdoc add <Buff Name> [style].")
+            ProcDoc_Say("no custom procs added. Use /procdoc add <Buff Name> [style] [texture].")
         else
             ProcDoc_Say(count.." custom proc(s) tracked.")
         end
@@ -3152,7 +3295,7 @@ SlashCmdList["PROCDOC"] = function(msg)
             ProcDoc_Say("usage: /procdoc pulsefps <10-500>   (now "..tostring(ProcDocDB.globalVars.pulseReferenceFps or 60)..")")
         end
     elseif cmd == "help" or cmd == "?" then
-        ProcDoc_Say("/procdoc - options | add/remove/list | combat on|off | resource dim|hide | decimals on|off | source | scan | status | trace | pulsefps <n>")
+        ProcDoc_Say("/procdoc - options | add/remove/list/textures | combat on|off | resource dim|hide | decimals on|off | source | scan | status | trace | pulsefps <n>")
     else
         CreateProcDocOptionsFrame()
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ffffProcDoc|r Options opened")
